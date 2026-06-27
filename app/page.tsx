@@ -82,7 +82,7 @@ const NYC_RESTAURANTS = [
   },
 ];
 
-// ---------- FAKE FRIENDS WITH PREFERENCES ----------
+// ---------- FAKE FRIENDS ----------
 const FRIENDS = [
   { id: "f1", name: "Alice", likes: ["Congee", "Dim Sum"], dislikes: ["Spicy"] },
   { id: "f2", name: "Bob", likes: ["Pastrami", "Beer"], dislikes: ["Seafood"] },
@@ -90,46 +90,50 @@ const FRIENDS = [
   { id: "f4", name: "Diana", likes: ["Dim Sum", "Tea"], dislikes: ["Crowds"] },
 ];
 
-// ---------- HELPER: compute likelihood (0-100) ----------
+// ---------- FAKE USER (SKIPS LOGIN!) ----------
+const FAKE_USER: User = {
+  id: "fake-user-123",
+  email: "demo@vibematch.com",
+  created_at: new Date().toISOString(),
+  aud: "",
+  role: "",
+  app_metadata: {},
+  user_metadata: {},
+  identities: [],
+  confirmed_at: "",
+  last_sign_in_at: "",
+  updated_at: "",
+  is_anonymous: false,
+} as User;
+
+// ---------- HELPER: compute likelihood ----------
 function getLikelihood(friend: any, restaurant: any): number {
-  let score = 50; // base
-  // If friend likes any feature of the restaurant, add points
+  let score = 50;
   const features = restaurant.features.map((f: string) => f.split(" ")[1] || f);
   for (const like of friend.likes) {
     if (features.some((f: string) => f.toLowerCase().includes(like.toLowerCase()))) {
       score += 20;
     }
   }
-  // If friend dislikes any feature, subtract
   for (const dislike of friend.dislikes) {
     if (features.some((f: string) => f.toLowerCase().includes(dislike.toLowerCase()))) {
       score -= 30;
     }
   }
-  // Clamp
   return Math.max(0, Math.min(100, score));
 }
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [restaurants, setRestaurants] = useState(NYC_RESTAURANTS);
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(FAKE_USER); // FAKE USER ALWAYS LOGGED IN
   const [saving, setSaving] = useState(false);
   const [selectedRestaurant, setSelectedRestaurant] = useState<any>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const router = useRouter();
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user || null);
-    });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user || null);
-    });
-    return () => listener?.subscription.unsubscribe();
-  }, []);
+  // No real auth needed — we have fake user!
 
-  // ---------- SEARCH (client-side) ----------
   const handleSearch = () => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) {
@@ -146,15 +150,9 @@ export default function Home() {
     setRestaurants(filtered);
   };
 
-  // ---------- DEMO: "Crave This" ----------
   const handleCraving = async (restaurant: any) => {
-    if (!user) {
-      alert("Please log in first!");
-      router.push("/login");
-      return;
-    }
+    // No login check needed — fake user is always logged in
     setSaving(true);
-    // Simulate saving to Supabase (fake for demo)
     await new Promise((resolve) => setTimeout(resolve, 500));
     alert(`✅ Craving for "${restaurant.name}" saved! (Demo)`);
     setSaving(false);
@@ -162,10 +160,8 @@ export default function Home() {
     setShowInviteModal(true);
   };
 
-  // ---------- DEMO: Send Invite ----------
   const handleSendInvite = () => {
     if (!selectedRestaurant) return;
-    // Sort friends by likelihood (descending)
     const sorted = [...FRIENDS].sort(
       (a, b) =>
         getLikelihood(b, selectedRestaurant) - getLikelihood(a, selectedRestaurant)
@@ -182,7 +178,6 @@ export default function Home() {
     setShowInviteModal(false);
   };
 
-  // ---------- VIBE CHECK ----------
   const handleVibeCheck = (restaurant: any) => {
     const friendsList = FRIENDS.map(
       (f) =>
@@ -198,22 +193,13 @@ export default function Home() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      {/* Header with user & login */}
+      {/* Header with fake user */}
       <div className="flex justify-between items-center mb-6">
         <div className="text-sm text-[#6B6B7B]">
-          {user ? (
-            <span className="flex items-center gap-2">
-              <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-              Logged in as {user.email}
-            </span>
-          ) : (
-            <span className="flex items-center gap-2">
-              <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-              <Link href="/login" className="text-[#B23A2E] hover:underline">
-                Log in
-              </Link>
-            </span>
-          )}
+          <span className="flex items-center gap-2">
+            <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+            🎬 Demo Mode: {user?.email || "demo@vibematch.com"}
+          </span>
         </div>
         <Link href="/dashboard" className="text-sm text-[#B23A2E] hover:underline">
           My Cravings →
@@ -249,7 +235,7 @@ export default function Home() {
             </button>
           </div>
           <div className="text-xs text-[#6B6B7B] mt-2">
-            Demo: try "congee", "dim sum", "noodles", "pastrami", or leave empty to see all
+            🎬 Demo Mode: try "congee", "dim sum", "noodles", "pastrami", or leave empty to see all
           </div>
         </div>
       </div>
@@ -319,7 +305,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Invite Modal (simple overlay) */}
+      {/* Invite Modal */}
       {showInviteModal && selectedRestaurant && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl">
@@ -353,7 +339,7 @@ export default function Home() {
               </button>
             </div>
             <p className="text-xs text-[#6B6B7B] mt-3 text-center">
-              Demo: SMS & notifications will be sent to all friends.
+              🎬 Demo: No login needed. All notifications are simulated.
             </p>
           </div>
         </div>
