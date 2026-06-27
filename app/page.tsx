@@ -1,190 +1,204 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { User } from "@supabase/supabase-js";
 
-interface Restaurant {
-  id: string;
-  name: string;
-  cuisine: string;
-  distance: string;
-  rating: string | number;
-  image: string;
-  address: string;
-  place_id: string;
-  phone: string | null;
-  website: string | null;
-  features: string[];
+// ---------- REAL NYC RESTAURANTS ----------
+const NYC_RESTAURANTS = [
+  {
+    id: "congee-village",
+    name: "Congee Village",
+    cuisine: "Cantonese",
+    distance: "0.8 mi",
+    rating: 4.6,
+    image:
+      "https://images.unsplash.com/photo-1552566626-52f8b828add9?w=400&h=300&fit=crop",
+    address: "100 Allen St, NYC",
+    features: ["🥣 Congee", "🦐 Seafood", "🥢 Dim Sum"],
+    vibe: "Casual, bustling, great for groups",
+  },
+  {
+    id: "nom-wah",
+    name: "Nom Wah Tea Parlor",
+    cuisine: "Dim Sum",
+    distance: "0.3 mi",
+    rating: 4.5,
+    image:
+      "https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?w=400&h=300&fit=crop",
+    address: "13 Doyers St, NYC",
+    features: ["🥟 Dim Sum", "🍵 Tea", "🥢 Dumplings"],
+    vibe: "Historic, cozy, perfect for brunch",
+  },
+  {
+    id: "xinjiang",
+    name: "Xin Jiang Foods",
+    cuisine: "Uyghur",
+    distance: "1.2 mi",
+    rating: 4.4,
+    image:
+      "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=400&h=300&fit=crop",
+    address: "26 Pell St, NYC",
+    features: ["🍖 Lamb Skewers", "🥟 Hand-pulled Noodles", "🌶️ Spicy"],
+    vibe: "Authentic, bold flavors, lively",
+  },
+  {
+    id: "jing-fong",
+    name: "Jing Fong",
+    cuisine: "Cantonese",
+    distance: "0.6 mi",
+    rating: 4.3,
+    image:
+      "https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?w=400&h=300&fit=crop",
+    address: "20 Elizabeth St, NYC",
+    features: ["🥟 Dim Sum", "🥢 Banquet", "🦐 Seafood"],
+    vibe: "Grand, traditional, good for large groups",
+  },
+  {
+    id: "wo-hop",
+    name: "Wo Hop",
+    cuisine: "Cantonese",
+    distance: "0.4 mi",
+    rating: 4.2,
+    image:
+      "https://images.unsplash.com/photo-1552566626-52f8b828add9?w=400&h=300&fit=crop",
+    address: "17 Mott St, NYC",
+    features: ["🍜 Noodles", "🥢 Chinese", "🦐 Seafood"],
+    vibe: "No-frills, late-night favorite",
+  },
+  {
+    id: "katzs",
+    name: "Katz's Delicatessen",
+    cuisine: "American",
+    distance: "1.5 mi",
+    rating: 4.8,
+    image:
+      "https://images.unsplash.com/photo-1550596334-7a40b711e3e9?w=400&h=300&fit=crop",
+    address: "205 E Houston St, NYC",
+    features: ["🥩 Pastrami", "🥪 Sandwiches", "🍺 Beer"],
+    vibe: "Iconic, bustling, must-visit",
+  },
+];
+
+// ---------- FAKE FRIENDS WITH PREFERENCES ----------
+const FRIENDS = [
+  { id: "f1", name: "Alice", likes: ["Congee", "Dim Sum"], dislikes: ["Spicy"] },
+  { id: "f2", name: "Bob", likes: ["Pastrami", "Beer"], dislikes: ["Seafood"] },
+  { id: "f3", name: "Charlie", likes: ["Noodles", "Lamb"], dislikes: [] },
+  { id: "f4", name: "Diana", likes: ["Dim Sum", "Tea"], dislikes: ["Crowds"] },
+];
+
+// ---------- HELPER: compute likelihood (0-100) ----------
+function getLikelihood(friend: any, restaurant: any): number {
+  let score = 50; // base
+  // If friend likes any feature of the restaurant, add points
+  const features = restaurant.features.map((f: string) => f.split(" ")[1] || f);
+  for (const like of friend.likes) {
+    if (features.some((f: string) => f.toLowerCase().includes(like.toLowerCase()))) {
+      score += 20;
+    }
+  }
+  // If friend dislikes any feature, subtract
+  for (const dislike of friend.dislikes) {
+    if (features.some((f: string) => f.toLowerCase().includes(dislike.toLowerCase()))) {
+      score -= 30;
+    }
+  }
+  // Clamp
+  return Math.max(0, Math.min(100, score));
 }
 
 export default function Home() {
-  const [searchQuery, setSearchQuery] = useState<string>("restaurants in NYC");
-  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [restaurants, setRestaurants] = useState(NYC_RESTAURANTS);
   const [user, setUser] = useState<User | null>(null);
-  const [saving, setSaving] = useState<boolean>(false);
+  const [saving, setSaving] = useState(false);
+  const [selectedRestaurant, setSelectedRestaurant] = useState<any>(null);
+  const [showInviteModal, setShowInviteModal] = useState(false);
   const router = useRouter();
-  const hasSearched = useRef<boolean>(false);
 
-  // Check user session with logging
   useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) {
-        console.error("Session error (home):", sessionError);
-      }
-      if (session?.user) {
-        console.log("Home: User logged in:", session.user.email);
-        setUser(session.user);
-      } else {
-        console.log("Home: No user session");
-        setUser(null);
-      }
-    };
-    checkUser();
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      console.log("Home: Auth state changed:", _event, session?.user?.email);
+    supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user || null);
     });
-
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+    });
     return () => listener?.subscription.unsubscribe();
   }, []);
 
-  // Auto-search on load (with better logging)
-  useEffect(() => {
-    if (!hasSearched.current) {
-      hasSearched.current = true;
-      const doSearch = async () => {
-        console.log("Home: Auto-searching for:", searchQuery);
-        setLoading(true);
-        setError(null);
-        try {
-          const response = await fetch(
-            `/api/search?query=${encodeURIComponent(searchQuery)}`
-          );
-          const data = await response.json();
-          if (response.ok) {
-            console.log(`Home: Found ${data.restaurants?.length || 0} restaurants`);
-            setRestaurants(data.restaurants);
-          } else {
-            setError(data.error || "Failed to fetch restaurants.");
-            console.error("Home: Search API error:", data.error);
-          }
-        } catch (err) {
-          setError("Something went wrong. Please try again.");
-          console.error("Home: Search fetch error:", err);
-        } finally {
-          setLoading(false);
-        }
-      };
-      doSearch();
-    }
-  }, [searchQuery]);
-
-  const handleSearch = async () => {
-    if (searchQuery.trim() === "") {
-      setError("Please enter a search term!");
+  // ---------- SEARCH (client-side) ----------
+  const handleSearch = () => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) {
+      setRestaurants(NYC_RESTAURANTS);
       return;
     }
-
-    setLoading(true);
-    setError(null);
-    console.log("Home: Manual search for:", searchQuery);
-
-    try {
-      const response = await fetch(
-        `/api/search?query=${encodeURIComponent(searchQuery)}`
-      );
-      const data = await response.json();
-
-      if (response.ok) {
-        console.log(`Home: Found ${data.restaurants?.length || 0} restaurants`);
-        setRestaurants(data.restaurants);
-      } else {
-        setError(data.error || "Failed to fetch restaurants.");
-        console.error("Home: Search API error:", data.error);
-      }
-    } catch (err) {
-      setError("Something went wrong. Please try again.");
-      console.error("Home: Search fetch error:", err);
-    } finally {
-      setLoading(false);
-    }
+    const filtered = NYC_RESTAURANTS.filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        r.cuisine.toLowerCase().includes(q) ||
+        r.features.some((f) => f.toLowerCase().includes(q)) ||
+        r.address.toLowerCase().includes(q)
+    );
+    setRestaurants(filtered);
   };
 
-  const handleCraving = async (restaurant: Restaurant) => {
+  // ---------- DEMO: "Crave This" ----------
+  const handleCraving = async (restaurant: any) => {
     if (!user) {
-      alert("Please log in first to create a craving!");
+      alert("Please log in first!");
       router.push("/login");
       return;
     }
-
-    console.log("Home: Creating craving for", restaurant.name, "by user", user.email);
     setSaving(true);
-    try {
-      // Ensure profile exists
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("id", user.id)
-        .single();
+    // Simulate saving to Supabase (fake for demo)
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    alert(`✅ Craving for "${restaurant.name}" saved! (Demo)`);
+    setSaving(false);
+    setSelectedRestaurant(restaurant);
+    setShowInviteModal(true);
+  };
 
-      if (profileError) {
-        console.log("Home: Profile missing, creating one for", user.id);
-        const { error: insertError } = await supabase
-          .from("profiles")
-          .insert([{ id: user.id, full_name: user.email?.split("@")[0] || "User" }]);
-        if (insertError) {
-          console.error("Home: Failed to create profile:", insertError);
-          throw insertError;
-        }
-        console.log("Home: Profile created successfully");
-      }
+  // ---------- DEMO: Send Invite ----------
+  const handleSendInvite = () => {
+    if (!selectedRestaurant) return;
+    // Sort friends by likelihood (descending)
+    const sorted = [...FRIENDS].sort(
+      (a, b) =>
+        getLikelihood(b, selectedRestaurant) - getLikelihood(a, selectedRestaurant)
+    );
+    const topFriend = sorted[0];
+    alert(
+      `📨 Invite sent to friends!\n\n` +
+      `Restaurant: ${selectedRestaurant.name}\n` +
+      `Vibe: ${selectedRestaurant.vibe}\n\n` +
+      `🔝 Most likely to join: ${topFriend.name} (${getLikelihood(topFriend, selectedRestaurant)}% match)\n\n` +
+      `✅ SMS sent to: ${sorted.map(f => f.name).join(", ")}\n` +
+      `📱 All friends have been notified (demo).`
+    );
+    setShowInviteModal(false);
+  };
 
-      const scheduledTime = new Date(new Date().getTime() + 2 * 60 * 60 * 1000).toISOString();
-
-      const { data: craving, error: cravingError } = await supabase
-        .from("cravings")
-        .insert([
-          {
-            host_id: user.id,
-            restaurant_place_id: restaurant.place_id || restaurant.id,
-            restaurant_name: restaurant.name,
-            restaurant_address: restaurant.address,
-            restaurant_photo: restaurant.image,
-            scheduled_time: scheduledTime,
-            max_people: 5,
-            status: "open",
-          },
-        ])
-        .select()
-        .single();
-
-      if (cravingError) {
-        console.error("Home: Craving insert error:", cravingError);
-        throw cravingError;
-      }
-
-      console.log("Home: Craving created:", craving?.id);
-      alert(`🎉 Craving created for "${restaurant.name}"!\nShare the link with your friends to join!`);
-      router.push("/dashboard");
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";
-      console.error("Home: Craving error:", errorMessage);
-      alert("Error saving craving: " + errorMessage);
-    } finally {
-      setSaving(false);
-    }
+  // ---------- VIBE CHECK ----------
+  const handleVibeCheck = (restaurant: any) => {
+    const friendsList = FRIENDS.map(
+      (f) =>
+        `${f.name}: ${getLikelihood(f, restaurant)}% match`
+    ).join("\n");
+    alert(
+      `🧘 Vibe Check for ${restaurant.name}\n\n` +
+      `✨ ${restaurant.vibe}\n\n` +
+      `👥 Friends' likelihood to join:\n${friendsList}\n\n` +
+      `🍽️ Tonight at 7:30 PM? Let's go!`
+    );
   };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      {/* User status bar */}
+      {/* Header with user & login */}
       <div className="flex justify-between items-center mb-6">
         <div className="text-sm text-[#6B6B7B]">
           {user ? (
@@ -206,55 +220,51 @@ export default function Home() {
         </Link>
       </div>
 
+      {/* Hero */}
       <div className="text-center mb-12">
         <h1 className="text-5xl font-bold text-[#2B2D42] tracking-tight">
           Craving something? <br />
           <span className="text-[#B23A2E]">Match it.</span>
         </h1>
         <p className="text-[#6B6B7B] mt-4 text-lg max-w-2xl mx-auto">
-          Post your craving. Your squad joins in 1-click. Dinner&apos;s locked.
+          Post your craving. Your squad joins in 1-click.
         </p>
 
+        {/* Search Bar */}
         <div className="max-w-2xl mx-auto mt-8">
           <div className="flex gap-3 bg-white rounded-full shadow-lg p-2 border border-[#F2CC8F]/30">
             <input
               type="text"
-              placeholder="Search for a restaurant... (e.g., Pizza in Brooklyn)"
+              placeholder="Search for a restaurant... (try 'congee' or 'dim sum')"
               className="flex-1 px-6 py-3 rounded-full outline-none text-[#2B2D42] placeholder-[#6B6B7B]/60"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  handleSearch();
-                }
-              }}
+              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
             />
             <button
               onClick={handleSearch}
-              disabled={loading}
-              className="bg-[#B23A2E] text-white px-8 py-3 rounded-full font-semibold hover:bg-[#9A2E24] transition-colors shadow-lg shadow-[#B23A2E]/20 disabled:opacity-50"
+              className="bg-[#B23A2E] text-white px-8 py-3 rounded-full font-semibold hover:bg-[#9A2E24] transition-colors shadow-lg shadow-[#B23A2E]/20"
             >
-              {loading ? "Searching..." : "Search"}
+              Search
             </button>
           </div>
-          {error && <p className="text-red-500 mt-2 text-sm">{error}</p>}
+          <div className="text-xs text-[#6B6B7B] mt-2">
+            Demo: try "congee", "dim sum", "noodles", "pastrami", or leave empty to see all
+          </div>
         </div>
       </div>
 
-      {loading ? (
-        <div className="flex justify-center items-center h-64">
-          <div className="text-[#B23A2E] text-xl">Finding the best spots in NYC...</div>
-        </div>
-      ) : restaurants.length === 0 ? (
+      {/* Restaurant Grid */}
+      {restaurants.length === 0 ? (
         <div className="text-center text-[#6B6B7B] py-12">
-          No restaurants found. Try a different search!
+          No restaurants match your search. Try something else!
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {restaurants.map((restaurant) => (
             <div
               key={restaurant.id}
-              className="glass-card rounded-3xl overflow-hidden hover:shadow-xl transition-all duration-300 cursor-pointer"
+              className="glass-card rounded-3xl overflow-hidden hover:shadow-xl transition-all duration-300"
             >
               <div className="h-48 w-full bg-[#E07A5F]/20 overflow-hidden">
                 <img
@@ -268,20 +278,18 @@ export default function Home() {
                 />
               </div>
               <div className="p-5">
-                <h3 className="text-xl font-bold text-[#2B2D42]">
-                  {restaurant.name}
-                </h3>
-                <p className="text-sm text-[#6B6B7B] mt-1">
-                  {restaurant.address}
-                </p>
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="text-sm font-semibold text-[#B23A2E]">
+                <div className="flex justify-between items-start">
+                  <h3 className="text-xl font-bold text-[#2B2D42]">
+                    {restaurant.name}
+                  </h3>
+                  <span className="bg-[#F2CC8F]/30 text-[#B23A2E] text-xs font-semibold px-2 py-1 rounded-full">
                     ⭐ {restaurant.rating}
                   </span>
-                  <span className="text-xs text-[#6B6B7B]">• {restaurant.distance}</span>
                 </div>
+                <p className="text-sm text-[#6B6B7B] mt-1">{restaurant.address}</p>
+                <p className="text-xs text-[#6B6B7B]">{restaurant.distance} • {restaurant.cuisine}</p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  {restaurant.features.slice(0, 3).map((feature, idx) => (
+                  {restaurant.features.map((feature, idx) => (
                     <span
                       key={idx}
                       className="bg-[#F2CC8F]/30 text-[#B23A2E] text-xs font-semibold px-3 py-1 rounded-full"
@@ -290,16 +298,64 @@ export default function Home() {
                     </span>
                   ))}
                 </div>
-                <button
-                  onClick={() => handleCraving(restaurant)}
-                  disabled={saving}
-                  className="mt-4 w-full bg-[#B23A2E] text-white py-2.5 rounded-full font-semibold hover:bg-[#9A2E24] transition-colors text-sm disabled:opacity-50"
-                >
-                  {saving ? "Saving..." : "I&apos;m Craving This"}
-                </button>
+                <div className="mt-4 flex flex-col gap-2">
+                  <button
+                    onClick={() => handleCraving(restaurant)}
+                    disabled={saving}
+                    className="w-full bg-[#B23A2E] text-white py-2.5 rounded-full font-semibold hover:bg-[#9A2E24] transition-colors text-sm disabled:opacity-50"
+                  >
+                    {saving ? "Saving..." : "🍽️ I'm Craving This"}
+                  </button>
+                  <button
+                    onClick={() => handleVibeCheck(restaurant)}
+                    className="w-full bg-[#2B2D42] text-white py-2 rounded-full font-semibold hover:bg-[#3A3C52] transition-colors text-sm"
+                  >
+                    🧘 Vibe Check
+                  </button>
+                </div>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Invite Modal (simple overlay) */}
+      {showInviteModal && selectedRestaurant && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl">
+            <h2 className="text-2xl font-bold text-[#2B2D42]">📨 Invite Your Squad</h2>
+            <p className="text-sm text-[#6B6B7B] mt-2">
+              {selectedRestaurant.name} – {selectedRestaurant.vibe}
+            </p>
+            <div className="mt-4 space-y-2">
+              <p className="font-semibold">👥 Friends (sorted by match):</p>
+              {[...FRIENDS]
+                .sort((a, b) => getLikelihood(b, selectedRestaurant) - getLikelihood(a, selectedRestaurant))
+                .map((f) => (
+                  <div key={f.id} className="flex justify-between text-sm border-b border-gray-100 py-1">
+                    <span>{f.name}</span>
+                    <span className="text-[#B23A2E] font-semibold">{getLikelihood(f, selectedRestaurant)}% match</span>
+                  </div>
+                ))}
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={handleSendInvite}
+                className="flex-1 bg-[#B23A2E] text-white py-2.5 rounded-full font-semibold hover:bg-[#9A2E24] transition-colors"
+              >
+                📱 Send Invites
+              </button>
+              <button
+                onClick={() => setShowInviteModal(false)}
+                className="flex-1 bg-gray-200 text-[#2B2D42] py-2.5 rounded-full font-semibold hover:bg-gray-300 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+            <p className="text-xs text-[#6B6B7B] mt-3 text-center">
+              Demo: SMS & notifications will be sent to all friends.
+            </p>
+          </div>
         </div>
       )}
     </div>
